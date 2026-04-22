@@ -1,0 +1,36 @@
+{
+  "name": "sprut-type-kit",
+  "version": "1.0.0",
+  "description": "Набор инструментов на основе деревьев для набора текста с мультивводом и совместным сетевым использованием",
+  "author": "ValesValesskiy",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "build": "node ./scripts/build.js",
+    "dev": "node ./scripts/build.js --watch"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/browser.js"
+      },
+      "node": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/node.js",
+        "require": "./dist/node.cjs"
+      },
+      "default": "./dist/node.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/node.cjs",
+  "module": "./dist/node.js",
+  "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "esbuild": "^0.28.0",
+    "prettier": "^3.8.2",
+    "typescript": "^6.0.2"
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script src="./dist/browser.js"></script>
+    <script>
+      const a = app.createField({
+        text: 'sdf\n234234\nsdfsdf,234234,sdfg\nsdf\n234 234\nsdf sdf,234 234,sdfg\nsdf\n234 234\nsdf sdf,OTHER,other,234 234,sd fg',
+      });
+
+      document.body.append(a.element);
+    </script>
+    <style>
+      .cursor {
+        background: black;
+        min-width: 2px;
+      }
+    </style>
+  </body>
+</html>
