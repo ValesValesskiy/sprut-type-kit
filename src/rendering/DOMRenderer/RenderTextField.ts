@@ -14,7 +14,7 @@ import {
 } from '../../dataModel';
 
 export class RenderTextField<T extends object> extends Eventable<{
-  'v-input:add': (vInput: VRenderInput<T>) => void;
+  'v-input:add': (...vInput: VRenderInput<T>[]) => void;
   'v-input:remove': (input: VRenderInput<T>) => void;
   'input:add': (input: RenderInput<T>) => void;
   'input:change': (input: RenderInput<T>) => void;
@@ -74,14 +74,19 @@ export class RenderTextField<T extends object> extends Eventable<{
     const dataField = (this.dataNode = new TextField());
 
     this.siblings.on('mounted', (...childs) => {
+      const vInputs: VRenderInput<T>[] = [];
+
       for (let child of childs) {
         switch (true) {
           case child instanceof VRenderInput: {
-            this.emit('v-input:add', child);
+            vInputs.push(child);
+            //this.emit('v-input:add', child);
             break;
           }
         }
       }
+
+      this.emit('v-input:add', ...vInputs);
     });
     this.siblings.on('unmounted', (child) => {
       switch (true) {

@@ -59,7 +59,25 @@ export const toRight = <T extends object>(
 
       cursor.dataNode!.relativeTranslate(cursorOffset);
     } else {
-      cursor.dataNode!.relativeTranslate(1);
+      const a = cursor.getVInputByCursorPosition();
+
+      if (a.vInput?.renderViewNode) {
+        a.vInput.blur?.();
+
+        cursor.dataNode.positionInInput = a.vInput.startIndex + a.vInput.length;
+        cursor.dataNode.updatePosition();
+      } else {
+        cursor.dataNode!.relativeTranslate(1);
+      }
+      const i = cursor.getVInputByCursorPosition();
+
+      if (i.vInput?.renderViewNode) {
+        if (a.vInput !== i.vInput) {
+          i.vInput.focus?.();
+        } else {
+        }
+      }
+      //cursor.dataNode!.relativeTranslate(1);
     }
 
     // TODO: поведение курсора на границах

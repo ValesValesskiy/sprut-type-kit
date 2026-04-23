@@ -303,7 +303,7 @@ export class Siblings<
     this.emit('mounted', node);
   }
 
-  insertBefore(node: TNode) {
+  private _insertBefore(node: TNode) {
     this.remove();
 
     const nodeSiblings = node.siblings;
@@ -320,8 +320,21 @@ export class Siblings<
     } else if (nodeSiblings._parent) {
       nodeSiblings._parent.siblings._firstChild = this._node;
     }
+  }
+
+  insertBefore(node: TNode) {
+    this._insertBefore(node);
 
     this._parent?.siblings.emit('mounted', this._node);
+    //this.emit('mounted', this._node);
+  }
+
+  insertBeforeThis(...nodes: TNode[]) {
+    for (let node of nodes) {
+      node.siblings._insertBefore(this._node);
+    }
+
+    this._parent?.siblings.emit('mounted', ...nodes);
     //this.emit('mounted', this._node);
   }
 

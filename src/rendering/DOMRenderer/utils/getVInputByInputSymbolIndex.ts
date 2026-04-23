@@ -3,7 +3,8 @@ import { VRenderInput } from '../VRenderInput';
 
 export const getVInputByInputSymbolIndex = <T extends object>(
   renderInput: RenderInput<T>,
-  index: number
+  index: number,
+  withoutRenders: boolean = true
 ) => {
   let current: VRenderInput<T> | null = renderInput.siblings.children[0];
   let count = index;
@@ -22,7 +23,10 @@ export const getVInputByInputSymbolIndex = <T extends object>(
   }
 
   if (count === length) {
-    if (current?.siblings.next) {
+    if (
+      current?.siblings.next &&
+      (withoutRenders ? !current?.siblings.next.renderViewNode : true)
+    ) {
       current = current.siblings.next;
       count = 0;
     }

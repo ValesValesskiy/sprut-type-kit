@@ -3,6 +3,9 @@ import { RenderInput } from './RenderInput';
 import { Siblings } from '../../dataModel';
 
 export class VRenderInput<T extends object> {
+  focus?: () => void;
+  blur?: () => void;
+
   constructor({
     offset,
     renderViewNode,
@@ -14,6 +17,7 @@ export class VRenderInput<T extends object> {
     this.renderViewNode = renderViewNode;
   }
 
+  throughOffset: boolean = false;
   offset: number;
 
   element?: T;
@@ -38,7 +42,9 @@ export class VRenderInput<T extends object> {
     // );
 
     return (
-      this.siblings.next?.offset ??
+      (this.siblings.next?.throughOffset
+        ? this.siblings.next?.offset + (this.siblings.next?.length ?? 0)
+        : this.siblings.next?.offset) ??
       this.siblings.parent!.dataNode!.content.length - this.startIndex
     );
   }
@@ -48,7 +54,12 @@ export class VRenderInput<T extends object> {
 
     return this.siblings.parent?.dataNode?.content.substring(
       start,
-      this.siblings.next ? start + this.siblings.next?.offset : undefined
+      this.siblings.next
+        ? start +
+            (this.siblings.next.throughOffset
+              ? this.siblings.next.offset + (this.siblings.next.length ?? 0)
+              : this.siblings.next?.offset)
+        : undefined
     );
   }
 

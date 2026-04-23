@@ -64,17 +64,35 @@ export function createField({ text }: { text: string }) {
     console.log('[Remove Row]:', renderRow);
   });
 
-  field.on('v-input:add', (vInput) => {
-    const vInputElement = document.createElement('span');
-    const renderInput = vInput.siblings.parent!;
+  field.on('v-input:add', (...vInputs) => {
+    for (let vInput of vInputs) {
+      const vInputElement = document.createElement('span');
 
-    vInputElement.classList.add('v-input');
-    vInput.element = vInputElement;
+      vInputElement.classList.add('v-input');
+      vInput.element = vInputElement;
 
-    field.vInputViewToRenderMap.set(vInputElement, vInput);
+      field.vInputViewToRenderMap.set(vInputElement, vInput);
+    }
 
-    vInputElement.textContent = vInput.content || '\u200B';
-    renderInput.element!.append(vInputElement);
+    for (let vInput of vInputs) {
+      const vInputElement = vInput.element!;
+      const renderInput = vInput.siblings.parent!;
+
+      if (vInput?.renderViewNode) {
+        vInputElement.append(vInput?.renderViewNode());
+      } else {
+        vInputElement.textContent = vInput.content || '\u200B';
+      }
+
+      if (vInputs[vInputs.length - 1].siblings.next) {
+        renderInput.element!.insertBefore(
+          vInputElement,
+          vInputs[vInputs.length - 1].siblings.next!.element!
+        );
+      } else {
+        renderInput.element!.append(vInputElement);
+      }
+    }
   });
 
   field.on('v-input:remove', function (vInput) {
@@ -132,17 +150,30 @@ export function createField({ text }: { text: string }) {
       throw new Error('');
     }
 
-    const range = document.createRange();
+    /* Если мы в начале инпута и есть предыдущий сосед */
+    const isStartWithPrevioius = index === 0 && vInput.siblings.previous;
 
-    range.setStart(vInput.element!.firstChild!, index);
-    range.setEnd(vInput.element!.firstChild!, index);
-    const rect = range.getBoundingClientRect();
+    if (vInput.renderViewNode && !isStartWithPrevioius) {
+      renderCursor.element!.style.display = 'none';
+    } else {
+      if (vInput.renderViewNode && isStartWithPrevioius) {
+        vInput = vInput.siblings.previous!;
+        index = vInput.length;
+      }
 
-    renderCursor.element!.style.position = 'absolute';
-    renderCursor.element!.style.left = rect.left + 'px';
-    renderCursor.element!.style.top = rect.top + 'px';
-    renderCursor.element!.style.width = rect.width + 'px';
-    renderCursor.element!.style.height = rect.height + 'px';
+      const range = document.createRange();
+
+      range.setStart(vInput.element!.firstChild!, index);
+      range.setEnd(vInput.element!.firstChild!, index);
+      const rect = range.getBoundingClientRect();
+
+      renderCursor.element!.style.display = 'block';
+      renderCursor.element!.style.position = 'absolute';
+      renderCursor.element!.style.left = rect.left + 'px';
+      renderCursor.element!.style.top = rect.top + 'px';
+      renderCursor.element!.style.width = rect.width + 'px';
+      renderCursor.element!.style.height = rect.height + 'px';
+    }
   });
 
   field.on('cursor:remove', function (renderCursor) {
@@ -274,36 +305,79 @@ export function createField({ text }: { text: string }) {
       mutatedVInput.vInput!.content ?? '[ERROR]';
 
     const str = renderInput.dataNode!.content;
-    const match = str.match('@@@@@');
+    const matches = str.matchAll(/@@@@@/g);
+    const r = /@@@@@/g;
+    let match;
 
-    if (match) {
-      const f = getVInputByInputSymbolIndex(renderInput, match.index!);
-      console.log(
-        '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
-        f,
-        match,
-        f.vInput?.content
-      );
-      if (f.vInput && f.vInput.content === '@@@@@') {
-        alert();
-        console.log('dfg');
-        return;
+    while ((match = r.exec(str))) {
+      console.log('[MATCH ALL]', [...matches], match, str);
+      if (match) {
+        const matchedVInput = getVInputByInputSymbolIndex(
+          renderInput,
+          match.index!,
+          false
+        );
+        console.log(
+          '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+          matchedVInput,
+          match,
+          matchedVInput.vInput?.content
+        );
+        if (matchedVInput.vInput && matchedVInput.vInput.content === '@@@@@') {
+          //alert();
+          console.log('dfg');
+          continue;
+        }
+
+        const first = new VRenderInput<HTMLElement>({
+          offset: matchedVInput.vInput!.offset,
+        });
+        const second = new VRenderInput<HTMLElement>({
+          offset: match.index! - matchedVInput.vInput!.startIndex,
+          renderViewNode() {
+            const el = document.createElement('span');
+
+            el.style.display = 'inline-block';
+            el.style.margin = '0 4px';
+            el.style.borderRadius = '4px';
+            el.style.backgroundColor = '#63a1ff';
+            el.style.color = '#ffffff';
+
+            el.classList.add('v-input-demo');
+
+            el.innerText = 'Virtual Input';
+            return el;
+          },
+        });
+        second.focus = () => {
+          second.element!.classList.add('active');
+        };
+        second.blur = () => {
+          second.element!.classList.remove('active');
+        };
+        const third = new VRenderInput<HTMLElement>({
+          offset: match[0].length,
+        });
+
+        if (matchedVInput.vInput?.siblings.next) {
+          matchedVInput.vInput.siblings.next.offset =
+            matchedVInput.vInput?.siblings.next.offset -
+            (match.index! - matchedVInput.vInput!.startIndex) -
+            match[0].length;
+        }
+
+        console.log('[V Inputs]', first, second, third);
+        //   renderInput.siblings.children[0].siblings.remove();
+        //   renderInput.siblings.appendChilds(
+        //     ...[first, second, third].filter((n) => true || n.offset)
+        //   );
+        matchedVInput.vInput!.throughOffset = true;
+        matchedVInput.vInput!.siblings.insertBeforeThis(first, second, third);
+        //   first.siblings.insertBefore(f.vInput!);
+        //   second.siblings.insertBefore(f.vInput!);
+        //   third.siblings.insertBefore(f.vInput!);
+        matchedVInput.vInput!.siblings.remove();
       }
-
-      const first = new VRenderInput<HTMLElement>({
-        offset: 0,
-      });
-      const second = new VRenderInput<HTMLElement>({
-        offset: match.index!,
-      });
-      const third = new VRenderInput<HTMLElement>({
-        offset: match[0].length,
-      });
-      console.log('[V Inputs]', first, second, third);
-      renderInput.siblings.children[0].siblings.remove();
-      renderInput.siblings.appendChilds(
-        ...[first, second, third].filter((n) => true || n.offset)
-      );
     }
   });
 
