@@ -46,20 +46,10 @@ export class VRenderInput<T extends object> {
   get content() {
     const start = this.startIndex;
 
-    return this.parentRenderInput?.dataNode?.content.substring(
+    return this.siblings.parent?.dataNode?.content.substring(
       start,
       this.siblings.next ? start + this.siblings.next?.offset : undefined
     );
-  }
-
-  get parentRenderInput(): RenderInput<T> | null {
-    const parent = this.siblings.parent;
-
-    if (parent instanceof RenderInput) {
-      return parent;
-    }
-
-    return parent?.parentRenderInput ?? null;
   }
 
   renderViewNode?: () => T;

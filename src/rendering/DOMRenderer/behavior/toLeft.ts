@@ -55,5 +55,16 @@ export const toLeft = <T extends object>(
     } else {
       cursor.dataNode!.relativeTranslate(-1);
     }
+
+    // TODO: поведение курсора на границах
+    // if (
+    //   cursor.dataNode.positionInInput === 0 &&
+    //   cursor.dataNode.input.siblings.previous
+    // ) {
+    //   cursor.dataNode.translate(
+    //     cursor.dataNode.input.siblings.previous,
+    //     cursor.dataNode.input.siblings.previous.content.length
+    //   );
+    // }
   }
 };

@@ -60,6 +60,7 @@ export function createField({ text }: { text: string }) {
 
   field.on('row:remove', function (renderRow) {
     renderRow.element?.remove();
+    field.dataRowToRenderMap.delete(renderRow.dataNode!);
     console.log('[Remove Row]:', renderRow);
   });
 
@@ -71,7 +72,7 @@ export function createField({ text }: { text: string }) {
     vInput.element = vInputElement;
 
     field.vInputViewToRenderMap.set(vInputElement, vInput);
-    console.log('{}{}{}{}{}{}{}{', !!vInput.content);
+
     vInputElement.textContent = vInput.content || '\u200B';
     renderInput.element!.append(vInputElement);
   });
@@ -89,12 +90,13 @@ export function createField({ text }: { text: string }) {
 
     const nextRenderNode = renderInput.siblings.next;
 
-    if (nextRenderNode) {
-      nextRenderNode.element!.parentElement!.insertBefore(
+    if (nextRenderNode && nextRenderNode?.element?.parentElement) {
+      nextRenderNode.element.parentElement.insertBefore(
         nextRenderNode.element!,
         renderInput.element
       );
     } else {
+      console.log(renderInput.siblings);
       renderInput.siblings.parent!.element!.append(renderInput.element);
     }
 
@@ -109,6 +111,7 @@ export function createField({ text }: { text: string }) {
 
   field.on('input:remove', function (renderInput) {
     renderInput.element?.remove();
+    field.dataInputToRenderMap.delete(renderInput.dataNode!);
     console.log('[Remove Input]:', renderInput);
   });
 
@@ -149,9 +152,10 @@ export function createField({ text }: { text: string }) {
   fieldElement.addEventListener('mousedown', function (e) {
     const caretPosition = document.caretPositionFromPoint(e.clientX, e.clientY);
 
-    const renderInput = field.vInputViewToRenderMap.get(
+    const vRenderInput = field.vInputViewToRenderMap.get(
       caretPosition?.offsetNode.parentElement!
-    )?.parentRenderInput;
+    );
+    const renderInput = vRenderInput?.siblings.parent;
     let newCursor: Cursor;
     console.log(renderInput);
     if (!field.dataNode.cursors.length || e.ctrlKey) {
@@ -160,6 +164,7 @@ export function createField({ text }: { text: string }) {
           (cursor) => cursor.dataNode!.meta.isOwn
         );
 
+        // Кажется это сравнение на установку курсора в одну позицию с другим
         if (
           ownCursors.some(
             ({ dataNode }) =>
@@ -174,7 +179,7 @@ export function createField({ text }: { text: string }) {
       newCursor = new Cursor({
         field: field!.dataNode!,
         input: renderInput!.dataNode!,
-        positionInInput: caretPosition?.offset!,
+        positionInInput: caretPosition?.offset! + vRenderInput?.startIndex!,
       });
 
       newCursor.meta.isOwn = true;
@@ -195,7 +200,9 @@ export function createField({ text }: { text: string }) {
     // TODO: Работа с индексами внутренних инпутов для вычисления оффсета, потому в caretPosition позиция курсора внутри vInput
     newCursor.translate(
       renderInput!.dataNode!,
-      renderInput!.dataNode!.content.length === 0 ? 0 : caretPosition?.offset!
+      renderInput!.dataNode!.content.length === 0
+        ? 0
+        : caretPosition?.offset! + vRenderInput?.startIndex!
     );
   });
 
@@ -274,7 +281,8 @@ export function createField({ text }: { text: string }) {
       console.log(
         '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
         f,
-        match
+        match,
+        f.vInput?.content
       );
       if (f.vInput && f.vInput.content === '@@@@@') {
         alert();
@@ -373,56 +381,78 @@ export function createField({ text }: { text: string }) {
       const cursors = sortCursors(
         field.dataNode.cursors.filter((cursor) => cursor.meta.isOwn)
       );
+      const inputCursorGoups: Array<Cursor[]> = [];
 
-      for (let cursorIndex in cursors) {
-        const cursor = cursors[cursorIndex];
-
-        const length = cursor.input.getIntoRowIndex(cursor.positionInInput);
-        const newInputs = cursor.input.split(cursor.positionInInput);
-
-        cursor.input.content = newInputs[0].content;
-
-        const rightInputs =
-          cursor.input.siblings.parent!.siblings.children.slice(
-            cursor.input.siblings.indexOf() + 1
-          );
-        const newRow = new Row();
-
-        newRow.siblings.insertAfter(cursor.input.siblings.parent!);
-        newRow.siblings.appendChilds(newInputs[1], ...rightInputs);
-
-        cursor.translate(newInputs[1], 0);
-
-        continue;
-
-        console.log('newInputs', newInputs);
-        console.log(length);
-        const rows = cursor.input.siblings.parent!.split(length);
-
+      for (let cursor of cursors) {
         if (
-          rows[rows.length - 1].siblings.children.length === 1 &&
-          !rows[rows.length - 1].siblings.children[0].content
+          !inputCursorGoups.length ||
+          inputCursorGoups[inputCursorGoups.length - 1][0].input !==
+            cursor.input
         ) {
-          rows[rows.length - 1].siblings.children[0].content = '\u200B';
+          inputCursorGoups.push([cursor]);
+        } else {
+          inputCursorGoups[inputCursorGoups.length - 1].push(cursor);
         }
-
-        if (
-          rows[0].siblings.children.length === 1 &&
-          !rows[0].siblings.children[0].content
-        ) {
-          rows[0].siblings.children[0].content = '\u200B';
-        }
-
-        rows?.forEach((row) => {
-          const ch = row.siblings.children;
-          ch.forEach((i) => i.destruct());
-          row.siblings.insertBefore(cursor.input.siblings.parent!);
-          row.siblings.appendChilds(...ch);
-        });
-        console.log(rows);
-        cursor.input.siblings.parent?.destruct();
-        cursor.translate(rows[1].siblings.firstChild!, 0);
       }
+      console.log('[CURSOR GROUPS]', inputCursorGoups);
+      for (let cursorGroup of inputCursorGoups) {
+        for (
+          let cursorIndex = cursorGroup.length - 1;
+          cursorIndex >= 0;
+          cursorIndex--
+        ) {
+          const cursor = cursorGroup[cursorIndex];
+
+          const length = cursor.input.getIntoRowIndex(cursor.positionInInput);
+          const newInputs = cursor.input.split(cursor.positionInInput);
+
+          cursor.input.content = newInputs[0].content;
+
+          const rightInputs =
+            cursor.input.siblings.parent!.siblings.children.slice(
+              cursor.input.siblings.indexOf() + 1
+            );
+          const newRow = new Row();
+
+          newRow.siblings.insertAfter(cursor.input.siblings.parent!);
+          newRow.siblings.appendChilds(newInputs[1], ...rightInputs);
+
+          cursor.input = newInputs[1];
+          cursor.positionInInput = 0;
+          //cursor.translate(newInputs[1], 0);
+        }
+        for (let cursor of cursorGroup) {
+          cursor.updatePosition();
+        }
+      }
+
+      // console.log('newInputs', newInputs);
+      // console.log(length);
+      // const rows = cursor.input.siblings.parent!.split(length);
+
+      // if (
+      //   rows[rows.length - 1].siblings.children.length === 1 &&
+      //   !rows[rows.length - 1].siblings.children[0].content
+      // ) {
+      //   rows[rows.length - 1].siblings.children[0].content = '\u200B';
+      // }
+
+      // if (
+      //   rows[0].siblings.children.length === 1 &&
+      //   !rows[0].siblings.children[0].content
+      // ) {
+      //   rows[0].siblings.children[0].content = '\u200B';
+      // }
+
+      // rows?.forEach((row) => {
+      //   const ch = row.siblings.children;
+      //   ch.forEach((i) => i.destruct());
+      //   row.siblings.insertBefore(cursor.input.siblings.parent!);
+      //   row.siblings.appendChilds(...ch);
+      // });
+      // console.log(rows);
+      // cursor.input.siblings.parent?.destruct();
+      // cursor.translate(rows[1].siblings.firstChild!, 0);
     } else if (e.inputType === 'insertFromPaste') {
       for (let d of e.dataTransfer!.items) {
         if (d.type === 'text/plain') {
@@ -464,7 +494,7 @@ export function createField({ text }: { text: string }) {
             prev?.siblings.parent?.appendInputs(...inputs);
           }
 
-          return;
+          continue;
         }
 
         if (!cursor.input.content.length) {
@@ -477,14 +507,26 @@ export function createField({ text }: { text: string }) {
           );
           prev.siblings.parent.destruct();
 
-          return;
+          continue;
+        }
+
+        if (cursor.positionInInput === 0 && cursor.input.siblings.previous) {
+          cursor.input = cursor.input.siblings.previous;
+          cursor.positionInInput = cursor.input.content.length;
         }
 
         cursor.input.content =
           cursor.input.content.substring(0, cursor.positionInInput - 1) +
           cursor.input.content.substring(cursor.positionInInput);
 
+        const currentInput = cursor.input;
+
         cursor.relativeTranslate(-1);
+
+        // TODO: тоже специфичное поведение курсора на границах инпута, вынести в опции
+        if (!currentInput.content.length) {
+          currentInput.destruct();
+        }
 
         if (cursor.positionInInput === 0) {
           if (!cursor.input.siblings.previous) {
@@ -492,6 +534,9 @@ export function createField({ text }: { text: string }) {
               //cursor.input.content = '\u200B';
             }
           } else if (cursor.input.siblings.previous) {
+            console.log(
+              '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            );
             const prev = cursor.input.siblings.previous;
 
             cursor.translate(prev, prev.content.length);

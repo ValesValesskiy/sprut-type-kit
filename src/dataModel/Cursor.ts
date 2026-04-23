@@ -55,22 +55,44 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
     const prevInput = this.input;
     const prevPosition = this.positionInInput;
 
-    this.input = input;
-    this.positionInInput = positionInInput;
+    let targetInput: Input;
+    let targetPosition: number;
 
-    if (force || input !== prevInput) {
-      prevInput.emit('cursor:blur', this);
-      input.emit('cursor:focus', this);
+    // TODO: данну стратегию лучше вынести в рендер, в данных оставить возможность гибко перемещать курсор
+    // Это влияет на то, как курсор ведёт себя на границах форматированного инпута
+    // Далее можно оставить возможность при удалении нулевого пустого символа например сращивать инпуты в один стиль предыдущего
+    // или сразу удалять символ предыдущего, а данный сохранять как есть
+    // При удалении в ноль инпута можно сразу удалять его, а можно оставлять для сохранения настроек стиля, чтобы писать прямо в пустом инпуте
+    // со старыми стилями, либо же сразу удалять его и переходить к предыдущему
+    // возможно это стоит выненсти в настройки или оставить на заботу рендера
+    if (false && positionInInput === 0 && input.siblings.previous) {
+      targetInput = input.siblings.previous;
+      targetPosition = targetInput.content.length;
+    } else {
+      targetInput = input;
+      targetPosition = positionInInput;
     }
 
-    if (force || input !== prevInput || prevPosition !== positionInInput) {
+    this.input = targetInput;
+    this.positionInInput = targetPosition;
+
+    if (force || targetInput !== prevInput) {
+      prevInput.emit('cursor:blur', this);
+      targetInput.emit('cursor:focus', this);
+    }
+
+    if (force || prevInput !== targetInput || prevPosition !== targetPosition) {
       this.field.emit(
         'cursor:translate',
         this,
-        { input, positionInInput },
+        { input: targetInput, positionInInput: targetPosition },
         { input: prevInput, positionInInput: prevPosition }
       );
     }
+  }
+
+  updatePosition() {
+    this.translate(this.input, this.positionInInput, true);
   }
 
   get selectedNodesData(): {

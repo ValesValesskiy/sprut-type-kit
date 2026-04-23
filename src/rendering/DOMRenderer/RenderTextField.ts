@@ -100,12 +100,13 @@ export class RenderTextField<T extends object> extends Eventable<{
             const newRenderInput = new RenderInput<T>();
 
             newRenderInput.dataNode = input;
+            this.dataInputToRenderMap.set(input, newRenderInput);
 
             const nextDataNode = input.siblings.next;
             const nextRenderNode = nextDataNode
               ? this.dataInputToRenderMap.get(nextDataNode)
               : null;
-
+            console.log(nextRenderNode);
             if (nextRenderNode) {
               newRenderInput.siblings.insertBefore(nextRenderNode);
             } else {
@@ -114,7 +115,6 @@ export class RenderTextField<T extends object> extends Eventable<{
                 .siblings.appendChild(newRenderInput);
             }
 
-            this.dataInputToRenderMap.set(input, newRenderInput);
             this.emit('input:add', newRenderInput);
             break;
           }
