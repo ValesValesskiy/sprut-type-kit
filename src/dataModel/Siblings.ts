@@ -40,7 +40,7 @@ type GetT<
   Acc = TChild,
   Checked = never,
 > = 0 extends 1 & TChild // Проверка на any
-  ? never
+  ? any
   : TChild extends Checked
     ? Acc
     : TChild['siblings']['children'][number] extends infer Next
@@ -269,7 +269,8 @@ export class Siblings<
 
     // TODO: дургие события без всплытия на сам инстанс и без аргумента
     parent?.siblings.emit('unmounted', this._node);
-    this.emit('unmounted', this._node);
+    // TODO: types
+    this.emit('unmounted', this._node as any);
   }
 
   private _appendChild(node: TChild) {
@@ -293,14 +294,16 @@ export class Siblings<
       this._appendChild(n);
     }
 
-    this.emit('mounted', ...nodes);
+    // TODO: types
+    this.emit('mounted', ...(nodes as any[]));
   }
 
   appendChild(node: TChild) {
     this._appendChild(node);
 
     // TODO: дургие события без всплытия на сам инстанс и без аргумента
-    this.emit('mounted', node);
+    // TODO: types
+    this.emit('mounted', node as any);
   }
 
   private _insertBefore(node: TNode) {
@@ -325,7 +328,8 @@ export class Siblings<
   insertBefore(node: TNode) {
     this._insertBefore(node);
 
-    this._parent?.siblings.emit('mounted', this._node);
+    // TODO: types
+    this._parent?.siblings.emit('mounted', this._node as unknown as TreeNode);
     //this.emit('mounted', this._node);
   }
 

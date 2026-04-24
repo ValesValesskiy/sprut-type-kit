@@ -3,7 +3,10 @@ import { RenderCursor } from '../RenderCursor';
 import { RenderInput } from '../RenderInput';
 import { RenderTextField } from '../RenderTextField';
 import { VRenderInput } from '../VRenderInput';
-import { getVInputByInputSymbolIndex } from '../utils';
+import {
+  getVInputByInputSymbolIndex,
+  iterateContentByCheckSymbolGroup,
+} from '../utils';
 
 export const toLeft = <T extends object>(
   e: KeyboardEvent,
@@ -39,68 +42,23 @@ export const toLeft = <T extends object>(
       ) {
         cursor.dataNode.relativeTranslate(-1);
       } else {
-        const isSearchSpace =
-          cursor.dataNode!.input.content[
-            cursor.dataNode!.positionInInput - 1
-          ] !== ' ';
+        const cursorPosition = iterateContentByCheckSymbolGroup({
+          renderField,
+          input: cursor.dataNode.input,
+          positionInInput: cursor.dataNode.positionInInput,
+          arrow: -1,
+          getSymbolGroup: (symbol) =>
+            /\d/.test(symbol) ? 1 : symbol === ' ' ? 2 : 3,
+        });
 
-        let currentInput: Input | undefined;
-        let currentRenderInput: RenderInput<T> | undefined;
-        let vInputs: VRenderInput<T>[] = [];
-
-        renderField.dataNode.iterateContent(
-          ({ symbol, symbolIndex, iterationIndex, input, row }, { end }) => {
-            if (currentInput !== input) {
-              currentInput = input;
-              currentRenderInput =
-                cursor.renderField.dataInputToRenderMap.get(input)!;
-              vInputs = currentRenderInput.siblings.children.filter(
-                ({ renderViewNode }) => renderViewNode
-              );
-            }
-
-            if (
-              vInputs.length &&
-              symbolIndex <
-                vInputs[vInputs.length - 1].startIndex +
-                  vInputs[vInputs.length - 1].length &&
-              symbolIndex >= vInputs[vInputs.length - 1].startIndex
-            ) {
-              end();
-              cursor.dataNode.translate(input, symbolIndex + 1);
-              //vInputs[vInputs.length - 1].focus?.();
-              return;
-            }
-
-            if (
-              (symbol === ' ' && isSearchSpace) ||
-              (symbol !== ' ' && !isSearchSpace)
-            ) {
-              console.log('space');
-              end();
-              cursor.dataNode.translate(input, symbolIndex + 1);
-            } else if (!input.siblings.previous && symbolIndex === 0) {
-              end();
-              cursor.dataNode.translate(input, 0);
-            }
-
-            console.log(
-              'Iteration[',
-              iterationIndex,
-              ']:',
-              symbolIndex,
-              input.content.length
-            );
-          },
-          {
-            arrow: -1,
-            from: {
-              input: cursor.dataNode!.input,
-              index: cursor.dataNode!.positionInInput - 1,
-              row: cursor.dataNode!.input.siblings.parent!,
-            },
-          }
-        );
+        if (cursorPosition) {
+          cursor.dataNode.translate(
+            cursorPosition?.input,
+            cursorPosition?.positionInInput
+          );
+        } else {
+          throw new Error('');
+        }
       }
     } else {
       const a = cursor.getVInputByCursorPosition();

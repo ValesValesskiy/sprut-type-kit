@@ -621,12 +621,14 @@ export function createField({ text }: { text: string }) {
         if (!cursor.input.content.length) {
           const prev = cursor.input;
 
-          cursor.translate(
-            prev.previousInput,
-            prev.previousInput?.content.length,
-            true
-          );
-          prev.siblings.parent.destruct();
+          if (prev.previousInput) {
+            cursor.translate(
+              prev.previousInput,
+              prev.previousInput?.content.length,
+              true
+            );
+            prev.siblings.parent!.destruct();
+          }
 
           continue;
         }

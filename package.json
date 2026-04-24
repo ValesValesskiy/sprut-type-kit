@@ -6,7 +6,8 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "build": "node ./scripts/build.js",
-    "dev": "node ./scripts/build.js --watch"
+    "dev": "node ./scripts/build.js --watch",
+    "prod": "node ./scripts/build.js --prod"
   },
   "type": "module",
   "exports": {
