@@ -33,17 +33,17 @@ export class VRenderInput<T extends object> {
       return 0;
     }
     console.log(prev);
-    return prev.startIndex + this.offset;
+    return prev.startIndex + (this.throughOffset ? 0 : this.offset);
   }
 
-  get length() {
+  get length(): number {
     // return (
     //   this.startIndex + this.offset - (this.siblings.previous?.startIndex ?? 0)
     // );
 
     return (
       (this.siblings.next?.throughOffset
-        ? this.siblings.next?.offset + (this.siblings.next?.length ?? 0)
+        ? (this.siblings.next?.length ?? 0)
         : this.siblings.next?.offset) ??
       this.siblings.parent!.dataNode!.content.length - this.startIndex
     );
@@ -57,7 +57,7 @@ export class VRenderInput<T extends object> {
       this.siblings.next
         ? start +
             (this.siblings.next.throughOffset
-              ? this.siblings.next.offset + (this.siblings.next.length ?? 0)
+              ? (this.siblings.next.length ?? 0)
               : this.siblings.next?.offset)
         : undefined
     );

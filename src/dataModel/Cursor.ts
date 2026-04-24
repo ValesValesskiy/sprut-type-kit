@@ -118,7 +118,7 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
     return null;
   }
 
-  relativeTranslate(offset: number) {
+  relativeTranslate(offset: number, withInputTransitions: boolean = false) {
     if (offset > 0) {
       if (this.input.content.length - this.positionInInput < offset) {
         const newOffset =
@@ -131,7 +131,10 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
           this.input = this.input.siblings.next;
           this.positionInInput = 0;
 
-          this.relativeTranslate(newOffset);
+          this.relativeTranslate(
+            newOffset - (withInputTransitions ? 1 : 0),
+            withInputTransitions
+          );
 
           return;
         } else {
@@ -142,7 +145,7 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
               this.input = nextRow.siblings.firstChild;
               this.positionInInput = 0;
 
-              this.relativeTranslate(newOffset - 1);
+              this.relativeTranslate(newOffset - 1, withInputTransitions);
 
               return;
             }
@@ -172,7 +175,10 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
           this.input = this.input.siblings.previous;
           this.positionInInput = this.input.content.length;
 
-          this.relativeTranslate(newOffset);
+          this.relativeTranslate(
+            newOffset + (withInputTransitions ? 1 : 0),
+            withInputTransitions
+          );
 
           return;
         } else {
@@ -183,7 +189,7 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
               this.input = prevRow.siblings.lastChild;
               this.positionInInput = this.input.content.length;
 
-              this.relativeTranslate(newOffset + 1);
+              this.relativeTranslate(newOffset + 1, withInputTransitions);
 
               return;
             }

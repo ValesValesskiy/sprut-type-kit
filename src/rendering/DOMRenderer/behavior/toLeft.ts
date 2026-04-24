@@ -1,5 +1,9 @@
+import { Input } from '../../../dataModel';
 import { RenderCursor } from '../RenderCursor';
+import { RenderInput } from '../RenderInput';
 import { RenderTextField } from '../RenderTextField';
+import { VRenderInput } from '../VRenderInput';
+import { getVInputByInputSymbolIndex } from '../utils';
 
 export const toLeft = <T extends object>(
   e: KeyboardEvent,
@@ -7,9 +11,19 @@ export const toLeft = <T extends object>(
   renderField: RenderTextField<T>
 ) => {
   for (let cursor of cursors) {
-    if (e.ctrlKey) {
-      let cursorOffset = 0;
+    let currentVInputPosition = getVInputByInputSymbolIndex<T>(
+      cursor.renderField.dataInputToRenderMap.get(cursor.dataNode.input)!,
+      cursor.dataNode.positionInInput
+    );
 
+    if (
+      e.ctrlKey &&
+      !(
+        currentVInputPosition.index === 0 &&
+        !!currentVInputPosition.vInput?.siblings.previous?.renderViewNode
+      ) &&
+      !currentVInputPosition.vInput?.renderViewNode
+    ) {
       if (
         !cursor.dataNode!.input.siblings.previous &&
         cursor.dataNode!.positionInInput === 0
@@ -19,39 +33,75 @@ export const toLeft = <T extends object>(
         continue;
       }
 
-      renderField.dataNode.iterateContent(
-        ({ symbol, symbolIndex, iterationIndex, input, row }, { end }) => {
-          if (symbol === ' ') {
-            console.log('space');
-            end();
-            cursorOffset = iterationIndex ? iterationIndex : 1;
-          } else if (!input.siblings.previous && symbolIndex === 0) {
-            end();
-            cursorOffset = 1;
-          } else if (!input.siblings.previous && symbolIndex === 1) {
-            end();
-            cursorOffset = iterationIndex + 2;
-          }
+      if (
+        !cursor.dataNode.input.siblings.previous &&
+        cursor.dataNode.positionInInput === 0
+      ) {
+        cursor.dataNode.relativeTranslate(-1);
+      } else {
+        const isSearchSpace =
+          cursor.dataNode!.input.content[
+            cursor.dataNode!.positionInInput - 1
+          ] !== ' ';
 
-          console.log(
-            'Iteration[',
-            iterationIndex,
-            ']:',
-            symbolIndex,
-            input.content.length
-          );
-        },
-        {
-          arrow: -1,
-          from: {
-            input: cursor.dataNode!.input,
-            index: cursor.dataNode!.positionInInput - 1,
-            row: cursor.dataNode!.input.siblings.parent!,
+        let currentInput: Input | undefined;
+        let currentRenderInput: RenderInput<T> | undefined;
+        let vInputs: VRenderInput<T>[] = [];
+
+        renderField.dataNode.iterateContent(
+          ({ symbol, symbolIndex, iterationIndex, input, row }, { end }) => {
+            if (currentInput !== input) {
+              currentInput = input;
+              currentRenderInput =
+                cursor.renderField.dataInputToRenderMap.get(input)!;
+              vInputs = currentRenderInput.siblings.children.filter(
+                ({ renderViewNode }) => renderViewNode
+              );
+            }
+
+            if (
+              vInputs.length &&
+              symbolIndex <
+                vInputs[vInputs.length - 1].startIndex +
+                  vInputs[vInputs.length - 1].length &&
+              symbolIndex >= vInputs[vInputs.length - 1].startIndex
+            ) {
+              end();
+              cursor.dataNode.translate(input, symbolIndex + 1);
+              //vInputs[vInputs.length - 1].focus?.();
+              return;
+            }
+
+            if (
+              (symbol === ' ' && isSearchSpace) ||
+              (symbol !== ' ' && !isSearchSpace)
+            ) {
+              console.log('space');
+              end();
+              cursor.dataNode.translate(input, symbolIndex + 1);
+            } else if (!input.siblings.previous && symbolIndex === 0) {
+              end();
+              cursor.dataNode.translate(input, 0);
+            }
+
+            console.log(
+              'Iteration[',
+              iterationIndex,
+              ']:',
+              symbolIndex,
+              input.content.length
+            );
           },
-        }
-      );
-
-      cursor.dataNode!.relativeTranslate(-cursorOffset);
+          {
+            arrow: -1,
+            from: {
+              input: cursor.dataNode!.input,
+              index: cursor.dataNode!.positionInInput - 1,
+              row: cursor.dataNode!.input.siblings.parent!,
+            },
+          }
+        );
+      }
     } else {
       const a = cursor.getVInputByCursorPosition();
 

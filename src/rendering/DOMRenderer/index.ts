@@ -183,9 +183,19 @@ export function createField({ text }: { text: string }) {
   fieldElement.addEventListener('mousedown', function (e) {
     const caretPosition = document.caretPositionFromPoint(e.clientX, e.clientY);
 
-    const vRenderInput = field.vInputViewToRenderMap.get(
-      caretPosition?.offsetNode.parentElement!
-    );
+    let vRenderInput: VRenderInput<HTMLElement> | undefined = undefined;
+    let currentNode = caretPosition?.offsetNode.parentElement!;
+
+    while (!vRenderInput) {
+      vRenderInput = field.vInputViewToRenderMap.get(currentNode);
+
+      currentNode = currentNode.parentElement!;
+    }
+
+    if (vRenderInput.renderViewNode) {
+      return;
+    }
+
     const renderInput = vRenderInput?.siblings.parent;
     let newCursor: Cursor;
     console.log(renderInput);
@@ -317,13 +327,21 @@ export function createField({ text }: { text: string }) {
           match.index!,
           false
         );
+        const matchedVInputEnd = getVInputByInputSymbolIndex(
+          renderInput,
+          match.index! + match[0].length - 1,
+          false
+        );
         console.log(
           '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
           matchedVInput,
           match,
           matchedVInput.vInput?.content
         );
-        if (matchedVInput.vInput && matchedVInput.vInput.content === '@@@@@') {
+        if (
+          matchedVInput.vInput?.renderViewNode ||
+          matchedVInputEnd.vInput?.renderViewNode
+        ) {
           //alert();
           console.log('dfg');
           continue;
@@ -361,18 +379,34 @@ export function createField({ text }: { text: string }) {
 
         if (matchedVInput.vInput?.siblings.next) {
           matchedVInput.vInput.siblings.next.offset =
-            matchedVInput.vInput?.siblings.next.offset -
+            matchedVInput.vInput?.length -
             (match.index! - matchedVInput.vInput!.startIndex) -
             match[0].length;
         }
 
         console.log('[V Inputs]', first, second, third);
+        console.log(
+          '[V-INPUTTS OFFSETS]',
+          [first, second, third].map((n) => n.offset)
+        );
         //   renderInput.siblings.children[0].siblings.remove();
         //   renderInput.siblings.appendChilds(
         //     ...[first, second, third].filter((n) => true || n.offset)
         //   );
+        const n = matchedVInput.vInput!.siblings.next;
+        const p = matchedVInput.vInput!.siblings.parent;
+        matchedVInput.vInput!.siblings.remove();
         matchedVInput.vInput!.throughOffset = true;
-        matchedVInput.vInput!.siblings.insertBeforeThis(first, second, third);
+        let push = [first, second, third];
+        if (false && second.offset === 0) {
+          push = [second, third];
+          second.offset = first.offset;
+        }
+        if (n) {
+          n?.siblings.insertBeforeThis(...push);
+        } else {
+          p?.siblings.appendChilds(...push);
+        }
         //   first.siblings.insertBefore(f.vInput!);
         //   second.siblings.insertBefore(f.vInput!);
         //   third.siblings.insertBefore(f.vInput!);
@@ -531,17 +565,30 @@ export function createField({ text }: { text: string }) {
       for (let d of e.dataTransfer!.items) {
         if (d.type === 'text/plain') {
           d.getAsString((data) => {
-            const cursors = field.dataNode.cursors.filter(
-              (cursor) => cursor.meta.isOwn
+            const cursors = sortCursors(
+              field.dataNode.cursors.filter((cursor) => cursor.meta.isOwn)
             );
+            let spaceCount = 0;
+            let prevCursor: Cursor | null = null;
 
             for (let cursor of cursors) {
-              cursor.input.content =
-                cursor.input.content.substring(0, cursor.positionInInput) +
-                data +
-                cursor.input.content.substring(cursor.positionInInput);
+              if (prevCursor?.input === cursor.input) {
+                spaceCount += 1;
+              } else {
+                spaceCount = 0;
+              }
+              //   cursor.input.content =
+              //     cursor.input.content.substring(0, cursor.positionInInput) +
+              //     data +
+              //     cursor.input.content.substring(cursor.positionInInput);
 
-              cursor.relativeTranslate(data.length);
+              cursor.input.insertText({
+                data: data as string,
+                position: cursor.positionInInput /*+ spaceCount*/,
+              });
+
+              prevCursor = cursor;
+              cursor.relativeTranslate(data!.length + spaceCount);
             }
           });
           break;
