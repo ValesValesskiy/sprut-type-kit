@@ -1,8 +1,7 @@
 import { Eventable } from './Eventable';
 import { Input } from './Input';
-import { Row } from './Row';
-import { Selection } from './Selection';
 import { TextField } from './TextField';
+import { TextSelection } from './TextSelection';
 
 export class Cursor extends Eventable<{ mounted: () => void }> {
   meta: {
@@ -12,6 +11,8 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
   private _input!: Input;
   positionInInput: number;
   field: TextField;
+
+  selection: TextSelection;
 
   get input() {
     return this._input;
@@ -23,7 +24,6 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
     }
     this._input = v;
   }
-  selection?: Selection;
 
   constructor({
     positionInInput,
@@ -48,6 +48,11 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
         { input, positionInInput },
         { input, positionInInput }
       );
+    });
+
+    this.selection = new TextSelection({
+      startInput: this.input,
+      startIndex: this.positionInInput,
     });
   }
 
@@ -108,7 +113,7 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
         finishIndex: 0,
         nodes: this.field.siblings.select(() => true, {
           from: selection.startInput,
-          to: selection.finishInput,
+          to: selection.finishInput || selection.startInput,
           maxLevel: 2,
           minLevel: 2,
         }) as unknown as Array<Input>,
@@ -163,7 +168,7 @@ export class Cursor extends Eventable<{ mounted: () => void }> {
     } else if (offset < 0) {
       if (this.positionInInput + offset <= 0) {
         const newOffset =
-          offset + (this.input.content === '\u200B' ? 0 : this.positionInInput);
+          offset + (this.input.content === '' ? 0 : this.positionInInput);
 
         if (newOffset === 0) {
           this.translate(this.input, 0);

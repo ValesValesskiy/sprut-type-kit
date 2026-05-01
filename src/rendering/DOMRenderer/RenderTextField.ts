@@ -22,6 +22,10 @@ export class RenderTextField<T extends object> extends Eventable<{
     input: RenderInput<T>,
     eventData: { data: string; position: number }
   ) => void;
+  ['input:mutation:remove']: (
+    input: RenderInput<T>,
+    eventData: { from: number; to: number; text: string }
+  ) => void;
   'input:remove': (input: RenderInput<T>) => void;
   'row:add': (row: RenderRow<T>) => void;
   'row:remove': (row: RenderRow<T>) => void;
@@ -172,6 +176,14 @@ export class RenderTextField<T extends object> extends Eventable<{
     this.dataNode.siblings.on('input:mutation:insert', (input, data) => {
       this.emit(
         'input:mutation:insert',
+        this.dataInputToRenderMap.get(input)!,
+        data
+      );
+    });
+
+    this.dataNode.siblings.on('input:mutation:remove', (input, data) => {
+      this.emit(
+        'input:mutation:remove',
         this.dataInputToRenderMap.get(input)!,
         data
       );

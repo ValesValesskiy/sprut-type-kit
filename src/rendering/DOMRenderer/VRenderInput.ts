@@ -1,8 +1,10 @@
 import { RenderInput } from './RenderInput';
 
-import { Siblings } from '../../dataModel';
+import { Eventable, Siblings } from '../../dataModel';
 
-export class VRenderInput<T extends object> {
+export type VInputEvents = {};
+
+export class VRenderInput<T extends object> extends Eventable<VInputEvents> {
   focus?: () => void;
   blur?: () => void;
 
@@ -13,11 +15,14 @@ export class VRenderInput<T extends object> {
     offset: number;
     renderViewNode?: VRenderInput<T>['renderViewNode'];
   }) {
+    super();
+
     this.offset = offset;
     this.renderViewNode = renderViewNode;
   }
 
   throughOffset: boolean = false;
+  textInputDisabled: boolean = false;
   offset: number;
 
   element?: T;
@@ -61,6 +66,26 @@ export class VRenderInput<T extends object> {
               : this.siblings.next?.offset)
         : undefined
     );
+  }
+
+  get nextInput(): VRenderInput<T> | null {
+    if (this.siblings.next) {
+      return this.siblings.next;
+    } else if (this.siblings.parent?.nextInput) {
+      return this.siblings.parent?.nextInput.siblings.firstChild;
+    }
+
+    return null;
+  }
+
+  get previousInput(): VRenderInput<T> | null {
+    if (this.siblings.previous) {
+      return this.siblings.previous;
+    } else if (this.siblings.parent?.previousInput) {
+      return this.siblings.parent?.previousInput.siblings.lastChild;
+    }
+
+    return null;
   }
 
   renderViewNode?: () => T;

@@ -1,8 +1,4 @@
-import { Input } from '../../../dataModel';
 import { RenderCursor } from '../RenderCursor';
-import { RenderInput } from '../RenderInput';
-import { RenderTextField } from '../RenderTextField';
-import { VRenderInput } from '../VRenderInput';
 import {
   getVInputByInputSymbolIndex,
   iterateContentByCheckSymbolGroup,
@@ -10,86 +6,103 @@ import {
 
 export const toRight = <T extends object>(
   e: KeyboardEvent,
-  cursors: RenderCursor<T>[],
-  renderField: RenderTextField<T>
+  cursor: RenderCursor<T>
 ) => {
-  for (let cursor of cursors) {
-    let currentVInputPosition = getVInputByInputSymbolIndex<T>(
-      cursor.renderField.dataInputToRenderMap.get(cursor.dataNode.input)!,
-      cursor.dataNode.positionInInput
-    );
+  let currentVInputPosition = getVInputByInputSymbolIndex<T>(
+    cursor.renderField.dataInputToRenderMap.get(cursor.dataNode.input)!,
+    cursor.dataNode.positionInInput
+  );
 
+  if (
+    e.ctrlKey &&
+    !(
+      currentVInputPosition.index ===
+        currentVInputPosition.vInput?.content?.length &&
+      !!currentVInputPosition.vInput?.siblings.next?.renderViewNode
+    ) &&
+    !currentVInputPosition.vInput?.renderViewNode
+  ) {
     if (
-      e.ctrlKey &&
-      !(
-        currentVInputPosition.index ===
-          currentVInputPosition.vInput?.content?.length &&
-        !!currentVInputPosition.vInput?.siblings.next?.renderViewNode
-      ) &&
-      !currentVInputPosition.vInput?.renderViewNode
+      !cursor.dataNode!.input.siblings.next &&
+      cursor.dataNode!.positionInInput === cursor.dataNode!.input.content.length
     ) {
-      if (
-        !cursor.dataNode!.input.siblings.next &&
-        cursor.dataNode!.positionInInput ===
-          cursor.dataNode!.input.content.length
-      ) {
-        cursor.dataNode!.relativeTranslate(1);
+      cursor.dataNode!.relativeTranslate(1);
 
-        continue;
-      }
-
-      if (
-        !cursor.dataNode.input.siblings.previous &&
-        cursor.dataNode.positionInInput === cursor.dataNode.input.content.length
-      ) {
-        cursor.dataNode.relativeTranslate(1);
-      } else {
-        const cursorPosition = iterateContentByCheckSymbolGroup({
-          renderField,
-          input: cursor.dataNode.input,
-          positionInInput: cursor.dataNode.positionInInput,
-          arrow: 1,
-          getSymbolGroup: (symbol) =>
-            /\d/.test(symbol) ? 1 : symbol === ' ' ? 2 : 3,
-        });
-
-        if (cursorPosition) {
-          cursor.dataNode.translate(
-            cursorPosition?.input,
-            cursorPosition?.positionInInput
-          );
-        } else {
-          throw new Error('');
-        }
-      }
-    } else {
-      const a = cursor.getVInputByCursorPosition();
-
-      if (a.vInput?.renderViewNode) {
-        a.vInput.blur?.();
-
-        cursor.dataNode.positionInInput = a.vInput.startIndex + a.vInput.length;
-        cursor.dataNode.updatePosition();
-      } else {
-        cursor.dataNode!.relativeTranslate(1);
-      }
-      const i = cursor.getVInputByCursorPosition();
-
-      if (i.vInput?.renderViewNode) {
-        if (a.vInput !== i.vInput) {
-          i.vInput.focus?.();
-        } else {
-        }
-      }
-      //cursor.dataNode!.relativeTranslate(1);
+      return;
     }
 
-    // TODO: поведение курсора на границах
-    // if (
-    //   cursor.dataNode.positionInInput === 0 &&
-    //   cursor.dataNode.input.siblings.previous
-    // ) {
-    //   cursor.dataNode.translate(cursor.dataNode.input.siblings.previous, 0);
-    // }
+    if (
+      !cursor.dataNode.input.siblings.previous &&
+      cursor.dataNode.positionInInput === cursor.dataNode.input.content.length
+    ) {
+      cursor.dataNode.relativeTranslate(1);
+    } else {
+      const cursorPosition = iterateContentByCheckSymbolGroup({
+        renderField: cursor.renderField,
+        input: cursor.dataNode.input,
+        positionInInput: cursor.dataNode.positionInInput,
+        arrow: 1,
+        getSymbolGroup: (symbol) =>
+          /\d/.test(symbol) ? 1 : symbol === ' ' ? 2 : 3,
+      });
+
+      if (cursorPosition) {
+        cursor.dataNode.translate(
+          cursorPosition?.input,
+          cursorPosition?.positionInInput
+        );
+      } else {
+        throw new Error('');
+      }
+    }
+  } else {
+    const a = cursor.getVInputByCursorPosition();
+
+    if (a.vInput?.renderViewNode) {
+      a.vInput.blur?.();
+
+      // if (
+      //   a.vInput.startIndex + a.vInput.length ===
+      //   cursor.dataNode.input.content.length
+      // ) {
+      //   const range = document.createRange();
+
+      //   range.setStart(a.vInput.siblings.next!.element!.firstChild!, 0);
+      //   range.setEnd(a.vInput.siblings.next!.element!.firstChild!, 0);
+      //   const rect = range.getBoundingClientRect();
+
+      //   cursor.element!.style.display = 'block';
+      //   cursor.element!.style.position = 'absolute';
+      //   cursor.element!.style.left = rect.left + 'px';
+      //   cursor.element!.style.top = rect.top + 'px';
+      //   cursor.element!.style.width = rect.width + 'px';
+      //   cursor.element!.style.height = rect.height + 'px';
+
+      //   cursor.dataNode.positionInInput =
+      //     a.vInput.startIndex + a.vInput.length;
+      //   return;
+      // }
+      cursor.dataNode.positionInInput = a.vInput.startIndex + a.vInput.length;
+      cursor.dataNode.updatePosition();
+    } else {
+      cursor.dataNode!.relativeTranslate(1 /*true*/); // По условию стратегии управления курсором
+    }
+    const i = cursor.getVInputByCursorPosition();
+
+    if (i.vInput?.renderViewNode) {
+      if (a.vInput !== i.vInput) {
+        i.vInput.focus?.();
+      } else {
+      }
+    }
+    //cursor.dataNode!.relativeTranslate(1);
   }
+
+  // TODO: поведение курсора на границах
+  // if (
+  //   cursor.dataNode.positionInInput === 0 &&
+  //   cursor.dataNode.input.siblings.previous
+  // ) {
+  //   cursor.dataNode.translate(cursor.dataNode.input.siblings.previous, 0);
+  // }
 };

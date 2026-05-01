@@ -13,6 +13,10 @@ export type TInputEvents = {
     input: Input,
     eventData: { data: string; position: number }
   ) => void;
+  ['input:mutation:remove']: (
+    input: Input,
+    eventData: { from: number; to: number; text: string }
+  ) => void;
   ['cursor:focus']: (cursor: Cursor) => void;
   ['cursor:blur']: (cursor: Cursor) => void;
   ['input:style:changed']: (
@@ -90,6 +94,23 @@ export class Input extends Eventable<TInputEvents> {
       this._content.substring(position);
 
     this.siblings.emit('input:mutation:insert', this, { data, position });
+  }
+
+  removeText(from: number = 0, to: number = this._content.length) {
+    if (from > to) {
+      throw new Error('');
+    }
+
+    const forRemove = this._content.substring(from, to);
+
+    this.siblings.emit('input:mutation:remove', this, {
+      from,
+      to,
+      text: forRemove,
+    });
+
+    this._content =
+      this._content.substring(0, from) + this._content.substring(to);
   }
 
   split(...n: number[]) {

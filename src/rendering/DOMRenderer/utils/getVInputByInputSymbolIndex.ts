@@ -13,7 +13,12 @@ export const getVInputByInputSymbolIndex = <T extends object>(
   while (current) {
     length = current.length;
 
-    if (index > current.startIndex + length) {
+    if (
+      index >
+      current.startIndex +
+        length -
+        (withoutRenders && current.renderViewNode ? 0 : 0)
+    ) {
       count = count - length;
     } else {
       break;

@@ -5,6 +5,7 @@ export { InputStyle } from './InputStyle';
 export { Eventable } from './Eventable';
 export { Siblings } from './Siblings';
 export { Cursor } from './Cursor';
+export { TextSelection } from './TextSelection';
 
 export * from './utils';
 
@@ -14,3 +15,5 @@ export type {
   TSelectorSettings,
   TSiblingEvents,
 } from './Siblings';
+
+export type { TTextSelectionOptions as TTextSelection } from './TextSelection';

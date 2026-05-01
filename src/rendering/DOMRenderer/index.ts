@@ -1,13 +1,34 @@
+import { RenderCursor } from './RenderCursor';
 import { RenderInput } from './RenderInput';
 import { RenderRow } from './RenderRow';
 import { RenderTextField } from './RenderTextField';
 import { VRenderInput } from './VRenderInput';
 import { toLeft, toRight } from './behavior';
-import { getVInputByInputSymbolIndex } from './utils';
+import {
+  allScrollOffsetLeft,
+  allScrollOffsetTop,
+  drawRoundLines,
+  drawRoundRect,
+  getVInputRectByCursorPosition,
+  getSortedForSelection,
+  getVInputByInputSymbolIndex,
+  getVRenderInputByClientCoords,
+  getVInputElement,
+} from './utils';
 
-import { Input, Row, Cursor, sortCursors } from '../../dataModel';
+import {
+  Input,
+  Row,
+  Cursor,
+  sortCursors,
+  TextSelection,
+  collapseFromTo,
+} from '../../dataModel';
 
 export function createField({ text }: { text: string }) {
+  let isMouseSelectionMode = false;
+  let activeCursor: RenderCursor<HTMLElement> | null = null;
+
   const field = new RenderTextField<HTMLElement>();
 
   const fieldElement = document.createElement('div');
@@ -39,7 +60,39 @@ export function createField({ text }: { text: string }) {
     hiddenInput.focus();
   });
 
+  const backCanvas = document.createElement('canvas');
+  const frontCanvas = document.createElement('canvas');
+  const backCanvasContext = backCanvas.getContext('2d')!;
+  const frontCanvasContext = frontCanvas.getContext('2d')!;
+
+  if (!backCanvasContext || !frontCanvasContext) {
+    throw new Error('');
+  }
+
+  backCanvas.classList.add('canvas', 'back-canvas');
+  frontCanvas.classList.add('canvas', 'front-canvas');
+
+  backCanvas.getContext('2d')!.fillStyle = '#3377cc';
+
+  fieldElement.append(backCanvas);
+  fieldElement.append(frontCanvas);
+
   field.element = fieldElement;
+
+  const resizeObserver = new ResizeObserver((entries) => {
+    for (let entry of entries) {
+      const newHeight = entry.contentRect.height;
+      const newWidth = entry.contentRect.width;
+
+      backCanvas.height = newHeight;
+      backCanvas.width = newWidth;
+
+      redrawAllSelections();
+    }
+  });
+
+  // Начинаем слежение
+  resizeObserver.observe(fieldElement);
 
   field.on('row:add', function (renderRow) {
     const el = (renderRow.element = document.createElement('div'));
@@ -143,54 +196,77 @@ export function createField({ text }: { text: string }) {
     this.cursorsElement!.append(el);
   });
 
-  field.on('cursor:translate', function (renderCursor, { renderInput }) {
-    let { vInput, index } = renderCursor.getVInputByCursorPosition();
-    console.log(renderCursor.dataNode, vInput, index);
-    if (!vInput) {
-      throw new Error('');
-    }
+  field.on(
+    'cursor:translate',
+    function (
+      renderCursor,
+      { renderInput },
+      { renderInput: prevInput, positionInInput: prevPosition }
+    ) {
+      let { vInput, index } = renderCursor.getVInputByCursorPosition();
+      const prevVInput = getVInputByInputSymbolIndex(
+        prevInput,
+        prevPosition
+      ).vInput;
 
-    /* Если мы в начале инпута и есть предыдущий сосед */
-    const isStartWithPrevioius = index === 0 && vInput.siblings.previous;
-
-    if (vInput.renderViewNode && !isStartWithPrevioius) {
-      renderCursor.element!.style.display = 'none';
-    } else {
-      if (vInput.renderViewNode && isStartWithPrevioius) {
-        vInput = vInput.siblings.previous!;
-        index = vInput.length;
+      console.log(renderCursor.dataNode, vInput, index);
+      if (!vInput) {
+        throw new Error('');
       }
 
-      const range = document.createRange();
+      /* Если мы в начале инпута и есть предыдущий сосед */
+      const isStartWithPrevioius = index === 0 && vInput.siblings.previous;
 
-      range.setStart(vInput.element!.firstChild!, index);
-      range.setEnd(vInput.element!.firstChild!, index);
-      const rect = range.getBoundingClientRect();
+      if (prevVInput) {
+        prevVInput.blur?.();
+      }
 
-      renderCursor.element!.style.display = 'block';
-      renderCursor.element!.style.position = 'absolute';
-      renderCursor.element!.style.left = rect.left + 'px';
-      renderCursor.element!.style.top = rect.top + 'px';
-      renderCursor.element!.style.width = rect.width + 'px';
-      renderCursor.element!.style.height = rect.height + 'px';
+      if (vInput.renderViewNode && !isStartWithPrevioius) {
+        renderCursor.element!.style.display = 'none';
+
+        vInput.focus?.();
+      } else {
+        if (vInput.renderViewNode && isStartWithPrevioius) {
+          vInput = vInput.siblings.previous!;
+          index = vInput.length;
+        }
+
+        const rect = getVInputRectByCursorPosition(
+          vInput.element!.firstChild!,
+          index
+        )[0];
+
+        renderCursor.element!.style.display = 'block';
+        renderCursor.element!.style.position = 'absolute';
+        renderCursor.element!.style.left =
+          rect.left -
+          allScrollOffsetLeft(renderCursor.element!) -
+          fieldElement.getBoundingClientRect().left +
+          window.scrollX +
+          'px';
+        renderCursor.element!.style.top =
+          rect.top -
+          allScrollOffsetTop(renderCursor.element!) -
+          fieldElement.getBoundingClientRect().top +
+          window.scrollY +
+          'px';
+        renderCursor.element!.style.width = rect.width + 'px';
+        renderCursor.element!.style.height = rect.height + 'px';
+      }
     }
-  });
+  );
 
   field.on('cursor:remove', function (renderCursor) {
     renderCursor.element?.remove();
   });
 
   fieldElement.addEventListener('mousedown', function (e) {
-    const caretPosition = document.caretPositionFromPoint(e.clientX, e.clientY);
+    isMouseSelectionMode = true;
 
-    let vRenderInput: VRenderInput<HTMLElement> | undefined = undefined;
-    let currentNode = caretPosition?.offsetNode.parentElement!;
-
-    while (!vRenderInput) {
-      vRenderInput = field.vInputViewToRenderMap.get(currentNode);
-
-      currentNode = currentNode.parentElement!;
-    }
+    const { vRenderInput, caretPosition } = getVRenderInputByClientCoords(
+      field,
+      { x: e.clientX, y: e.clientY }
+    );
 
     if (vRenderInput.renderViewNode) {
       return;
@@ -224,6 +300,7 @@ export function createField({ text }: { text: string }) {
       });
 
       newCursor.meta.isOwn = true;
+
       field.dataNode.addCursor(newCursor);
     } else {
       const ownCursors = field.dataNode.cursors.filter(
@@ -236,6 +313,8 @@ export function createField({ text }: { text: string }) {
         cursor.destruct();
       }
       newCursor = ownCursors[0];
+
+      clearBackCanvas();
     }
 
     // TODO: Работа с индексами внутренних инпутов для вычисления оффсета, потому в caretPosition позиция курсора внутри vInput
@@ -244,6 +323,12 @@ export function createField({ text }: { text: string }) {
       renderInput!.dataNode!.content.length === 0
         ? 0
         : caretPosition?.offset! + vRenderInput?.startIndex!
+    );
+
+    activeCursor = field.dataCursorToRenderMap.get(newCursor)!;
+    activeCursor.dataNode.selection.reset(
+      newCursor.input,
+      newCursor.positionInInput
     );
   });
 
@@ -350,6 +435,7 @@ export function createField({ text }: { text: string }) {
         const first = new VRenderInput<HTMLElement>({
           offset: matchedVInput.vInput!.offset,
         });
+
         const second = new VRenderInput<HTMLElement>({
           offset: match.index! - matchedVInput.vInput!.startIndex,
           renderViewNode() {
@@ -373,6 +459,8 @@ export function createField({ text }: { text: string }) {
         second.blur = () => {
           second.element!.classList.remove('active');
         };
+        second.textInputDisabled = true;
+
         const third = new VRenderInput<HTMLElement>({
           offset: match[0].length,
         });
@@ -415,6 +503,45 @@ export function createField({ text }: { text: string }) {
     }
   });
 
+  field.on('input:mutation:remove', (renderInput, { from, to }) => {
+    const { vInput: startVInput, index: startIndex } =
+      getVInputByInputSymbolIndex(renderInput, from);
+    const { vInput: finishVInput, index: finishIndex } =
+      getVInputByInputSymbolIndex(renderInput, to);
+    let current = startVInput?.siblings.next;
+    console.log(startVInput, finishVInput, from, to, '!!!!!!!!!!!!!!!!!!!');
+    while (current && current !== finishVInput) {
+      const next = current.nextInput;
+
+      current.siblings.remove();
+
+      current = next;
+    }
+
+    if (startVInput !== finishVInput) {
+      startVInput!.element!.innerText =
+        renderInput.dataNode!.content!.substring(
+          startVInput!.startIndex!,
+          from
+        );
+      finishVInput!.element!.innerText =
+        renderInput.dataNode!.content!.substring(
+          to,
+          finishVInput!.startIndex! + finishVInput!.length
+        );
+    } else {
+      startVInput!.element!.innerText =
+        renderInput.dataNode!.content!.substring(
+          startVInput!.startIndex!,
+          from
+        ) +
+        renderInput.dataNode!.content!.substring(
+          to,
+          startVInput!.startIndex! + startVInput!.length
+        );
+    }
+  });
+
   fieldElement.addEventListener('keydown', (e) => {
     console.log('\n');
     switch (e.key) {
@@ -423,7 +550,46 @@ export function createField({ text }: { text: string }) {
           (cursor) => cursor.dataNode?.meta.isOwn
         );
 
-        toRight(e, ownCursors, field);
+        for (let cursor of ownCursors) {
+          const selection = cursor.dataNode.selection;
+
+          if (e.shiftKey) {
+            if (!selection.getHasSelection()) {
+              selection.finishInput = cursor.dataNode.input;
+              selection.finishIndex = cursor.dataNode.positionInInput;
+            }
+
+            toRight(e, cursor);
+
+            selection.startInput = cursor.dataNode.input;
+            selection.startIndex = cursor.dataNode.positionInInput;
+          } else {
+            if (cursor.dataNode.selection.getHasSelection()) {
+              const { last, lastIndex } = getSortedForSelection(
+                cursor.dataNode.selection
+              );
+
+              cursor.dataNode.translate(last, lastIndex);
+
+              cursor.dataNode.selection.reset(last, lastIndex);
+
+              cursor.lastXPosition = cursor.element!.offsetLeft;
+
+              continue;
+            }
+
+            toRight(e, cursor);
+
+            cursor.dataNode.selection.reset(
+              cursor.dataNode.input,
+              cursor.dataNode.positionInInput
+            );
+          }
+
+          cursor.lastXPosition = cursor.element!.offsetLeft;
+        }
+
+        redrawAllSelections();
         break;
       }
       case 'ArrowLeft': {
@@ -431,18 +597,355 @@ export function createField({ text }: { text: string }) {
           (cursor) => cursor.dataNode?.meta.isOwn
         );
 
-        toLeft(e, ownCursors, field);
+        for (let cursor of ownCursors) {
+          const selection = cursor.dataNode.selection;
+
+          if (e.shiftKey) {
+            if (!selection.getHasSelection()) {
+              selection.finishInput = cursor.dataNode.input;
+              selection.finishIndex = cursor.dataNode.positionInInput;
+            }
+
+            toLeft(e, cursor);
+
+            selection.startInput = cursor.dataNode.input;
+            selection.startIndex = cursor.dataNode.positionInInput;
+          } else {
+            if (cursor.dataNode.selection.getHasSelection()) {
+              const { first, firstIndex } = getSortedForSelection(
+                cursor.dataNode.selection
+              );
+
+              cursor.dataNode.translate(first, firstIndex);
+
+              cursor.dataNode.selection.reset(first, firstIndex);
+
+              cursor.lastXPosition = cursor.element!.offsetLeft;
+
+              continue;
+            }
+
+            toLeft(e, cursor);
+
+            cursor.dataNode.selection.reset(
+              cursor.dataNode.input,
+              cursor.dataNode.positionInInput
+            );
+          }
+
+          cursor.lastXPosition = cursor.element!.offsetLeft;
+        }
+
+        redrawAllSelections();
+        break;
+      }
+      case 'ArrowUp': {
+        const ownCursors = field.cursors.filter(
+          (cursor) => cursor.dataNode!.meta.isOwn
+        );
+
+        for (let cursor of ownCursors) {
+          let currentInputPosition = cursor.getVInputByCursorPosition()!;
+          let currentRect = currentInputPosition.vInput?.renderViewNode
+            ? currentInputPosition.vInput.element!.getBoundingClientRect()
+            : getVInputRectByCursorPosition(
+                currentInputPosition.vInput!.element!.firstChild!,
+                currentInputPosition.index
+              )[0];
+
+          document.body.style.setProperty(
+            'pointer-events',
+            'none',
+            'important'
+          );
+          fieldElement.style.setProperty('pointer-events', 'auto', 'important');
+
+          const caretPosition = document.caretPositionFromPoint(
+            cursor.lastXPosition +
+              allScrollOffsetLeft(fieldElement) +
+              fieldElement.getBoundingClientRect().left -
+              window.scrollX,
+            currentRect.top - currentRect.height / 2
+          );
+
+          if (
+            caretPosition?.offsetNode != undefined &&
+            cursor.dataNode.input.siblings.parent!.siblings.previous
+          ) {
+            const vInput = getVInputElement(field, caretPosition.offsetNode);
+
+            if (vInput) {
+              if (vInput.renderViewNode) {
+                cursor.dataNode.translate(
+                  vInput.siblings.parent!.dataNode!,
+                  vInput.startIndex + vInput.length / 2
+                );
+              } else {
+                cursor.dataNode.translate(
+                  vInput.siblings.parent!.dataNode!,
+                  vInput.startIndex + caretPosition.offset
+                );
+              }
+            }
+          } else {
+            cursor.dataNode.translate(
+              cursor.dataNode.input.siblings.parent!.siblings.children[0],
+              0
+            );
+          }
+
+          document.body.style.setProperty('pointer-events', '', '');
+          fieldElement.style.setProperty('pointer-events', '', '');
+
+          cursor.dataNode.selection.reset(
+            cursor.dataNode.input,
+            cursor.dataNode.positionInInput
+          );
+        }
+
+        redrawAllSelections();
+
+        break;
+      }
+      case 'ArrowDown': {
+        const ownCursors = field.cursors.filter(
+          (cursor) => cursor.dataNode!.meta.isOwn
+        );
+
+        for (let cursor of ownCursors) {
+          let currentInputPosition = cursor.getVInputByCursorPosition()!;
+          let currentRect = currentInputPosition.vInput?.renderViewNode
+            ? currentInputPosition.vInput.element!.getBoundingClientRect()
+            : getVInputRectByCursorPosition(
+                currentInputPosition.vInput!.element!.firstChild!,
+                currentInputPosition.index
+              )[0];
+
+          document.body.style.setProperty(
+            'pointer-events',
+            'none',
+            'important'
+          );
+          fieldElement.style.setProperty('pointer-events', 'auto', 'important');
+
+          const caretPosition = document.caretPositionFromPoint(
+            cursor.lastXPosition +
+              allScrollOffsetLeft(fieldElement) +
+              fieldElement.getBoundingClientRect().left -
+              window.scrollX,
+            currentRect.top + currentRect.height + currentRect.height / 2
+          );
+
+          if (
+            caretPosition?.offsetNode != undefined &&
+            cursor.dataNode.input.siblings.parent!.siblings.next
+          ) {
+            console.log(caretPosition, currentRect);
+            const vInput = getVInputElement(field, caretPosition.offsetNode);
+
+            if (vInput) {
+              if (vInput.renderViewNode) {
+                cursor.dataNode.translate(
+                  vInput.siblings.parent!.dataNode!,
+                  vInput.startIndex + vInput.length / 2
+                );
+              } else {
+                console.log(vInput);
+                cursor.dataNode.translate(
+                  vInput.siblings.parent!.dataNode!,
+                  vInput.startIndex + caretPosition.offset
+                );
+              }
+            }
+          } else {
+            const rowInputs =
+              cursor.dataNode.input.siblings.parent!.siblings.children;
+
+            cursor.dataNode.translate(
+              rowInputs[rowInputs.length - 1],
+              rowInputs[rowInputs.length - 1].content.length
+            );
+          }
+
+          document.body.style.setProperty('pointer-events', '', '');
+          fieldElement.style.setProperty('pointer-events', '', '');
+
+          cursor.dataNode.selection.reset(
+            cursor.dataNode.input,
+            cursor.dataNode.positionInInput
+          );
+        }
+
+        redrawAllSelections();
+
         break;
       }
     }
   });
 
-  fieldElement.addEventListener('mousemove', (e) => {
-    // TODO: обработка выделения текста
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseSelectionMode && activeCursor) {
+      const { caretPosition, vRenderInput } = getVRenderInputByClientCoords(
+        field,
+        { x: e.clientX, y: e.clientY }
+      );
+
+      if (!vRenderInput) {
+        throw new Error('');
+      }
+
+      if (
+        !activeCursor.dataNode.selection.finishInput &&
+        activeCursor.dataNode.selection.finishIndex == undefined
+      ) {
+        activeCursor.dataNode.selection.finishInput =
+          activeCursor.dataNode.selection.startInput;
+        activeCursor.dataNode.selection.finishIndex =
+          activeCursor.dataNode.selection.startIndex;
+      }
+
+      activeCursor.dataNode.selection.startInput =
+        vRenderInput.siblings.parent!.dataNode!;
+      activeCursor.dataNode.selection.startIndex =
+        vRenderInput.startIndex + caretPosition?.offset!;
+
+      activeCursor.dataNode.translate(
+        activeCursor.dataNode.selection.startInput,
+        activeCursor.dataNode.selection.startIndex
+      );
+
+      redrawAllSelections();
+    }
   });
 
-  fieldElement.addEventListener('mouseup', () => {
-    // TODO: выход из режима выделения текста
+  function redrawAllSelections() {
+    clearBackCanvas();
+
+    for (let cursor of field.cursors) {
+      drawSelection(cursor.dataNode.selection);
+    }
+  }
+
+  function drawSelection(selection: TextSelection) {
+    if (!selection.getHasSelection()) {
+      return;
+    }
+
+    const { first, firstIndex, last, lastIndex } =
+      getSortedForSelection(selection);
+
+    const firstVInput = getVInputByInputSymbolIndex<HTMLElement>(
+      field.dataInputToRenderMap.get(first)!,
+      firstIndex!
+    );
+    const lastVInput = getVInputByInputSymbolIndex<HTMLElement>(
+      field.dataInputToRenderMap.get(last)!,
+      lastIndex!
+    );
+
+    const range = document.createRange();
+    let current = firstVInput.vInput?.nextInput;
+    const rects2: DOMRect[] = [];
+
+    if (firstVInput.vInput !== lastVInput.vInput) {
+      range.setStart(
+        firstVInput.vInput!.element!.firstChild!,
+        firstVInput.index
+      );
+      range.setEnd(
+        firstVInput.vInput!.element!.firstChild!,
+        firstVInput.vInput!.length
+      );
+
+      rects2.push(range.getBoundingClientRect());
+
+      while (current && current !== lastVInput.vInput) {
+        if (!current.renderViewNode) {
+          range.setStart(current.element!.firstChild!, 0);
+          range.setEnd(current.element!.firstChild!, current.length);
+
+          rects2.push(range.getBoundingClientRect());
+        }
+
+        current = current.nextInput;
+      }
+
+      range.setStart(lastVInput.vInput!.element!.firstChild!, 0);
+      range.setEnd(lastVInput.vInput!.element!.firstChild!, lastVInput.index);
+
+      rects2.push(range.getBoundingClientRect());
+    } else {
+      range.setStart(
+        firstVInput.vInput!.element!.firstChild!,
+        firstVInput.index
+      );
+      range.setEnd(lastVInput.vInput!.element!.firstChild!, lastVInput.index);
+
+      rects2.push(range.getBoundingClientRect());
+    }
+
+    const rects = [...range.getClientRects()].filter(
+      (rect, index, self) =>
+        rect.width > 0 &&
+        rect.height > 0 &&
+        index ===
+          self.findIndex(
+            (r) =>
+              r.top === rect.top &&
+              r.left === rect.left &&
+              r.width === rect.width &&
+              r.height === rect.height
+          )
+    );
+    console.log(rects);
+    const points = [];
+
+    // TODO: перевести на drawRoundLines, собрать ректы итеративно для каждого элемента с отсеиванием рендеров, далее склейка в непрерывные линии
+    //drawRoundLines(ctx, [], 2);
+    backCanvasContext.moveTo(
+      rects2[0].x -
+        allScrollOffsetLeft(fieldElement) -
+        fieldElement.getBoundingClientRect().left +
+        window.scrollX,
+      rects2[0].y -
+        allScrollOffsetTop(fieldElement) -
+        fieldElement.getBoundingClientRect().top +
+        window.scrollY
+    );
+    backCanvasContext.beginPath();
+    for (let rect of rects2) {
+      backCanvasContext.fillStyle = '#50b6cf';
+      backCanvasContext.moveTo(
+        rect.x -
+          allScrollOffsetLeft(fieldElement) -
+          fieldElement.getBoundingClientRect().left +
+          window.scrollX,
+        rect.y -
+          allScrollOffsetTop(fieldElement) -
+          fieldElement.getBoundingClientRect().top +
+          window.scrollY
+      );
+      drawRoundRect(
+        backCanvasContext,
+        rect.x -
+          allScrollOffsetLeft(fieldElement) -
+          fieldElement.getBoundingClientRect().left +
+          window.scrollX,
+        rect.y -
+          allScrollOffsetTop(fieldElement) -
+          fieldElement.getBoundingClientRect().top +
+          window.scrollY,
+        rect.width,
+        rect.height,
+        4
+      );
+    }
+    backCanvasContext.closePath();
+    backCanvasContext.fill();
+  }
+
+  window.addEventListener('mouseup', () => {
+    isMouseSelectionMode = false;
   });
 
   hiddenInput.addEventListener('beforeinput', (e) => {
@@ -477,14 +980,44 @@ export function createField({ text }: { text: string }) {
         //   e.data +
         //   cursor.input.content.substring(cursor.positionInInput + spaceCount);
 
-        cursor.input.insertText({
-          data: e.data as string,
-          position: cursor.positionInInput + spaceCount,
-        });
+        if (cursor.selection.getHasSelection()) {
+          const { first, firstIndex, last, lastIndex } = getSortedForSelection(
+            cursor.selection
+          );
+
+          collapseFromTo(first, firstIndex, last, lastIndex, true);
+
+          first.insertText({ data: e.data!, position: firstIndex });
+
+          if (!last.content.length) {
+            last.siblings.remove();
+          }
+
+          cursor.translate(first, firstIndex + 1);
+        } else {
+          const { vInput, index } = getVInputByInputSymbolIndex(
+            field.dataInputToRenderMap.get(cursor.input)!,
+            cursor.positionInInput
+          );
+
+          if (vInput?.textInputDisabled) {
+            cursor.relativeTranslate(spaceCount);
+          } else {
+            cursor.input.insertText({
+              data: e.data as string,
+              position: cursor.positionInInput + spaceCount,
+            });
+
+            cursor.relativeTranslate(e.data!.length + spaceCount);
+          }
+        }
+
+        cursor.selection.reset(cursor.input, cursor.positionInInput);
 
         prevCursor = cursor;
-        cursor.relativeTranslate(e.data!.length + spaceCount);
       }
+
+      redrawAllSelections();
     } else if (e.inputType === 'insertParagraph') {
       const cursors = sortCursors(
         field.dataNode.cursors.filter((cursor) => cursor.meta.isOwn)
@@ -511,28 +1044,43 @@ export function createField({ text }: { text: string }) {
         ) {
           const cursor = cursorGroup[cursorIndex];
 
-          const length = cursor.input.getIntoRowIndex(cursor.positionInInput);
-          const newInputs = cursor.input.split(cursor.positionInInput);
+          if (cursor.selection.getHasSelection()) {
+            const { first, firstIndex, last, lastIndex } =
+              getSortedForSelection(cursor.selection);
 
-          cursor.input.content = newInputs[0].content;
+            const row = last.siblings.parent!;
 
-          const rightInputs =
-            cursor.input.siblings.parent!.siblings.children.slice(
-              cursor.input.siblings.indexOf() + 1
-            );
-          const newRow = new Row();
+            collapseFromTo(first, firstIndex, last, lastIndex);
 
-          newRow.siblings.insertAfter(cursor.input.siblings.parent!);
-          newRow.siblings.appendChilds(newInputs[1], ...rightInputs);
+            //first.insertText({ data: e.data!, position: firstIndex });
+            cursor.translate(row.siblings.children[0], 0);
+            cursor.selection.reset(cursor.input, cursor.positionInInput);
+          } else {
+            const length = cursor.input.getIntoRowIndex(cursor.positionInInput);
+            const newInputs = cursor.input.split(cursor.positionInInput);
 
-          cursor.input = newInputs[1];
-          cursor.positionInInput = 0;
-          //cursor.translate(newInputs[1], 0);
+            cursor.input.content = newInputs[0].content;
+
+            const rightInputs =
+              cursor.input.siblings.parent!.siblings.children.slice(
+                cursor.input.siblings.indexOf() + 1
+              );
+            const newRow = new Row();
+
+            newRow.siblings.insertAfter(cursor.input.siblings.parent!);
+            newRow.siblings.appendChilds(newInputs[1], ...rightInputs);
+
+            cursor.input = newInputs[1];
+            cursor.positionInInput = 0;
+            //cursor.translate(newInputs[1], 0);
+          }
         }
         for (let cursor of cursorGroup) {
           cursor.updatePosition();
         }
       }
+
+      redrawAllSelections();
 
       // console.log('newInputs', newInputs);
       // console.log(length);
@@ -568,104 +1116,260 @@ export function createField({ text }: { text: string }) {
             const cursors = sortCursors(
               field.dataNode.cursors.filter((cursor) => cursor.meta.isOwn)
             );
-            let spaceCount = 0;
-            let prevCursor: Cursor | null = null;
+            const inputCursorGoups: Array<Cursor[]> = [];
 
             for (let cursor of cursors) {
-              if (prevCursor?.input === cursor.input) {
-                spaceCount += 1;
+              if (
+                !inputCursorGoups.length ||
+                inputCursorGoups[inputCursorGoups.length - 1][0].input !==
+                  cursor.input
+              ) {
+                inputCursorGoups.push([cursor]);
               } else {
-                spaceCount = 0;
+                inputCursorGoups[inputCursorGoups.length - 1].push(cursor);
               }
-              //   cursor.input.content =
-              //     cursor.input.content.substring(0, cursor.positionInInput) +
-              //     data +
-              //     cursor.input.content.substring(cursor.positionInInput);
+            }
 
-              cursor.input.insertText({
-                data: data as string,
-                position: cursor.positionInInput /*+ spaceCount*/,
-              });
+            for (let group of inputCursorGoups) {
+              for (let i = 0; i < group.length; i++) {
+                const cursor = group[i];
 
-              prevCursor = cursor;
-              cursor.relativeTranslate(data!.length + spaceCount);
+                if (cursor.selection.getHasSelection()) {
+                  const { first, firstIndex, last, lastIndex } =
+                    getSortedForSelection(cursor.selection);
+
+                  const row = last.siblings.parent!;
+
+                  collapseFromTo(first, firstIndex, last, lastIndex, true);
+
+                  cursor.selection.reset(cursor.input, cursor.positionInInput);
+                }
+
+                // TODO: в будущем разбивать линейной итерацией вне специальных символов, чтобы не повредить данные, например, рендеров
+                const dataParts = data
+                  .split('\n')
+                  .map((s) => s.replaceAll(/\r/g, ''));
+                console.log(data, dataParts);
+
+                cursor.input.insertText({
+                  data: dataParts[0],
+                  position: cursor.positionInInput,
+                });
+
+                cursor.relativeTranslate(dataParts[0].length);
+
+                for (let j = i + 1; j < group.length; j++) {
+                  group[j].positionInInput += dataParts[0].length;
+                }
+
+                const insertAfterRow = cursor.input.siblings.parent!;
+
+                if (dataParts.length > 1) {
+                  const rightInputs: Input[] = [];
+                  let currentInput = cursor.input.siblings.next;
+
+                  if (
+                    cursor.positionInInput !== 0 &&
+                    cursor.positionInInput !== cursor.input.content.length
+                  ) {
+                    const inputParts = cursor.input.split(
+                      cursor.positionInInput
+                    );
+
+                    cursor.input.content = inputParts[0].content;
+
+                    rightInputs.push(inputParts[1]);
+                  }
+
+                  while (currentInput) {
+                    rightInputs.push(currentInput);
+
+                    currentInput = currentInput.siblings.next;
+                  }
+
+                  const newRow = new Row();
+
+                  newRow.siblings.insertAfter(cursor.input.siblings.parent!);
+                  newRow.appendInputs(...rightInputs);
+
+                  newRow.siblings.children[0].insertText({
+                    data: dataParts[dataParts.length - 1],
+                    position: 0,
+                  });
+
+                  cursor.translate(
+                    rightInputs[0],
+                    dataParts[dataParts.length - 1].length
+                  );
+                }
+
+                // Далее не пользуемся координатами из курсора, он в финальном положении
+
+                for (let i = dataParts.length - 2; i >= 1; i--) {
+                  const newRow = new Row();
+                  const newInput = new Input('');
+
+                  newRow.siblings.insertAfter(insertAfterRow);
+                  newRow.appendInputs(newInput);
+
+                  newInput.insertText({
+                    data: dataParts[i],
+                    position: 0,
+                  });
+                }
+              }
             }
           });
           break;
         }
       }
     } else if (e.inputType === 'deleteContentBackward') {
-      const cursors = field.dataNode.cursors.filter(
-        (cursor) => cursor.meta.isOwn
+      const cursors = sortCursors(
+        field.dataNode.cursors.filter((cursor) => cursor.meta.isOwn)
       );
+      const inputCursorGoups: Array<Cursor[]> = [];
 
       for (let cursor of cursors) {
-        if (cursor.positionInInput === 0 && !cursor.input.siblings.previous) {
-          const prev = cursor.input.previousInput;
-          const inputs = cursor.input.siblings.parent!.siblings.children;
-          const emptyInput = cursor.input;
-          const emptyRow = cursor.input.siblings.parent;
+        if (
+          !inputCursorGoups.length ||
+          inputCursorGoups[inputCursorGoups.length - 1][0].input !==
+            cursor.input
+        ) {
+          inputCursorGoups.push([cursor]);
+        } else {
+          inputCursorGoups[inputCursorGoups.length - 1].push(cursor);
+        }
+      }
 
-          if (prev) {
-            cursor.translate(prev, prev.content.length);
+      let spaceCount = 0;
+      let prevCursor: Cursor | null = null;
 
-            //emptyInput.destruct();
-            emptyRow?.destruct();
+      for (let group of inputCursorGoups) {
+        for (let i = 0; i < group.length; i++) {
+          const cursor = group[i];
 
-            prev?.siblings.parent?.appendInputs(...inputs);
+          if (prevCursor?.input === cursor.input) {
+            spaceCount += 1;
+          } else {
+            spaceCount = 0;
           }
 
-          continue;
-        }
+          // cursor.input.content =
+          //   cursor.input.content.substring(
+          //     0,
+          //     cursor.positionInInput + spaceCount
+          //   ) +
+          //   e.data +
+          //   cursor.input.content.substring(cursor.positionInInput + spaceCount);
 
-        if (!cursor.input.content.length) {
-          const prev = cursor.input;
+          if (cursor.selection.getHasSelection()) {
+            const { first, firstIndex, last, lastIndex } =
+              getSortedForSelection(cursor.selection);
 
-          if (prev.previousInput) {
-            cursor.translate(
-              prev.previousInput,
-              prev.previousInput?.content.length,
-              true
-            );
-            prev.siblings.parent!.destruct();
-          }
+            const selectionLength = cursor.selection.length;
 
-          continue;
-        }
+            collapseFromTo(first, firstIndex, last, lastIndex, true);
 
-        if (cursor.positionInInput === 0 && cursor.input.siblings.previous) {
-          cursor.input = cursor.input.siblings.previous;
-          cursor.positionInInput = cursor.input.content.length;
-        }
+            first.insertText({ data: '', position: firstIndex });
 
-        cursor.input.content =
-          cursor.input.content.substring(0, cursor.positionInInput - 1) +
-          cursor.input.content.substring(cursor.positionInInput);
-
-        const currentInput = cursor.input;
-
-        cursor.relativeTranslate(-1);
-
-        // TODO: тоже специфичное поведение курсора на границах инпута, вынести в опции
-        if (!currentInput.content.length) {
-          currentInput.destruct();
-        }
-
-        if (cursor.positionInInput === 0) {
-          if (!cursor.input.siblings.previous) {
-            if (!cursor.input.content.length) {
-              //cursor.input.content = '\u200B';
+            if (!last.content.length) {
+              last.siblings.remove();
             }
-          } else if (cursor.input.siblings.previous) {
-            console.log(
-              '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-            );
-            const prev = cursor.input.siblings.previous;
 
-            cursor.translate(prev, prev.content.length);
+            cursor.translate(first, firstIndex, true);
+
+            cursor.selection.reset(first, firstIndex);
+
+            for (let j = i + 1; j < group.length; j++) {
+              group[j].positionInInput -= selectionLength;
+            }
+
+            prevCursor = cursor;
+          } else {
+            for (let j = i + 1; j < group.length; j++) {
+              group[j].positionInInput -= cursor.positionInInput === 0 ? 0 : 1;
+            }
+
+            if (
+              cursor.positionInInput === 0 &&
+              !cursor.input.siblings.previous
+            ) {
+              const prev = cursor.input.previousInput;
+              const inputs = cursor.input.siblings.parent!.siblings.children;
+              const emptyInput = cursor.input;
+              const emptyRow = cursor.input.siblings.parent;
+
+              if (prev) {
+                cursor.translate(prev, prev.content.length);
+
+                //emptyInput.destruct();
+                emptyRow?.destruct();
+
+                prev?.siblings.parent?.appendInputs(...inputs);
+              }
+
+              continue;
+            }
+
+            if (!cursor.input.content.length) {
+              const prev = cursor.input;
+
+              if (prev.previousInput) {
+                cursor.translate(
+                  prev.previousInput,
+                  prev.previousInput?.content.length,
+                  true
+                );
+                prev.siblings.parent!.destruct();
+              }
+
+              continue;
+            }
+
+            if (
+              cursor.positionInInput === 0 &&
+              cursor.input.siblings.previous
+            ) {
+              cursor.input = cursor.input.siblings.previous;
+              cursor.positionInInput = cursor.input.content.length;
+            }
+
+            cursor.input.content =
+              cursor.input.content.substring(0, cursor.positionInInput - 1) +
+              cursor.input.content.substring(cursor.positionInInput);
+
+            const currentInput = cursor.input;
+
+            cursor.relativeTranslate(-1);
+
+            // TODO: тоже специфичное поведение курсора на границах инпута, вынести в опции
+            if (!currentInput.content.length) {
+              currentInput.destruct();
+            }
+
+            if (cursor.positionInInput === 0) {
+              if (!cursor.input.siblings.previous) {
+                if (!cursor.input.content.length) {
+                  //cursor.input.content = '\u200B';
+                }
+              } else if (cursor.input.siblings.previous) {
+                console.log(
+                  '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+                );
+                const prev = cursor.input.siblings.previous;
+
+                cursor.translate(prev, prev.content.length);
+              }
+            }
           }
         }
       }
+
+      for (let cursor of cursors) {
+        cursor.updatePosition();
+      }
+
+      redrawAllSelections();
     } else if (e.inputType === 'deleteContentForward') {
     }
   });
@@ -690,8 +1394,17 @@ export function createField({ text }: { text: string }) {
     });
   }
 
+  requestAnimationFrame(() => {
+    backCanvas.width = fieldElement.offsetWidth;
+    backCanvas.height = fieldElement.offsetHeight;
+  });
+
   return {
     element: fieldElement,
     field,
   };
+
+  function clearBackCanvas() {
+    backCanvasContext.clearRect(0, 0, backCanvas.width, backCanvas.height);
+  }
 }

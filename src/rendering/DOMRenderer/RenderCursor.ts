@@ -9,6 +9,8 @@ export class RenderCursor<T extends object> {
 
   renderField!: RenderTextField<T>;
 
+  lastXPosition: number = 0;
+
   getVInputByCursorPosition() {
     const renderInput = this.renderField?.dataInputToRenderMap.get(
       this.dataNode.input
